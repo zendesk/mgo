@@ -674,7 +674,8 @@ func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(
 		if err == errPoolTimeout {
 			// No need to remove servers from the topology if acquiring a socket fails for this reason.
 			return nil, err
-		} else if err != nil {
+		}
+		if err != nil {
 			cluster.removeServer(server)
 			cluster.syncServers()
 			continue
