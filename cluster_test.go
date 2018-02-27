@@ -1649,6 +1649,32 @@ func (s *S) TestPoolLimitMany(c *C) {
 	c.Assert(delay < 6e9, Equals, true)
 }
 
+func (s *S) TestPoolLimitTimeout(c *C) {
+	if *fast {
+		c.Skip("-fast")
+	}
+
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+	session.SetPoolTimeout(1 * time.Second)
+	session.SetPoolLimit(1)
+
+	// Put one socket in use.
+	c.Assert(session.Ping(), IsNil)
+
+	// Now block trying to get another one due to the pool limit.
+	copy := session.Copy()
+	defer copy.Close()
+	started := time.Now()
+	err = copy.Ping()
+	delay := time.Since(started)
+
+	c.Assert(delay > 900*time.Millisecond, Equals, true, Commentf("Delay: %s", delay))
+	c.Assert(delay < 1100*time.Millisecond, Equals, true, Commentf("Delay: %s", delay))
+	c.Assert(strings.Contains(err.Error(), "could not acquire connection within pool timeout"), Equals, true, Commentf("Error: %s", err))
+}
+
 func (s *S) TestSetModeEventualIterBug(c *C) {
 	session1, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
