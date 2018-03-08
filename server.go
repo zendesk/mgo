@@ -162,16 +162,25 @@ func (server *mongoServer) acquireSocketInternal(
 						}
 					}()
 				}
+				timeSpentWaiting := time.Duration(0)
 				for len(server.liveSockets)-len(server.unusedSockets) >= poolLimit && !timeoutHit {
+					// We only count time spent in Wait(), and not time evaluating the entire loop,
+					// so that in the happy non-blocking path where the condition above evaluates true
+					// first time, we record a nice round zero wait time.
+					waitStart := time.Now()
 					// unlocks server mutex, waits, and locks again. Thus, the condition
 					// above is evaluated only when the lock is held.
 					server.poolWaiter.Wait()
+					timeSpentWaiting += time.Since(waitStart)
 				}
 				close(waitDone)
 				if timeoutHit {
 					server.Unlock()
+					stats.noticePoolTimeout(timeSpentWaiting)
 					return nil, false, errPoolTimeout
 				}
+				// Record that we fetched a connection of of a socket list and how long we spent waiting
+				stats.noticeSocketAcquisition(timeSpentWaiting)
 			} else {
 				if len(server.liveSockets)-len(server.unusedSockets) >= poolLimit {
 					server.Unlock()
