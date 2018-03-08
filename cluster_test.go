@@ -1583,6 +1583,9 @@ func (s *S) TestPoolLimitSimple(c *C) {
 		}
 		defer session.Close()
 
+		// So we can measure the stats for the blocking operation
+		mgo.ResetStats()
+
 		// Put one socket in use.
 		c.Assert(session.Ping(), IsNil)
 
@@ -1603,6 +1606,11 @@ func (s *S) TestPoolLimitSimple(c *C) {
 		session.Refresh()
 		delay := <-done
 		c.Assert(delay > 300*time.Millisecond, Equals, true, Commentf("Delay: %s", delay))
+		stats := mgo.GetStats()
+		c.Assert(stats.TimesSocketAcquired, Equals, 2)
+		c.Assert(stats.TimesWaitedForPool, Equals, 1)
+		c.Assert(stats.PoolTimeouts, Equals, 0)
+		c.Assert(stats.TotalPoolWaitTime > 300*time.Millisecond, Equals, true)
 	}
 }
 
@@ -1660,6 +1668,8 @@ func (s *S) TestPoolLimitTimeout(c *C) {
 	session.SetPoolTimeout(1 * time.Second)
 	session.SetPoolLimit(1)
 
+	mgo.ResetStats()
+
 	// Put one socket in use.
 	c.Assert(session.Ping(), IsNil)
 
@@ -1673,6 +1683,12 @@ func (s *S) TestPoolLimitTimeout(c *C) {
 	c.Assert(delay > 900*time.Millisecond, Equals, true, Commentf("Delay: %s", delay))
 	c.Assert(delay < 1100*time.Millisecond, Equals, true, Commentf("Delay: %s", delay))
 	c.Assert(strings.Contains(err.Error(), "could not acquire connection within pool timeout"), Equals, true, Commentf("Error: %s", err))
+	stats := mgo.GetStats()
+	c.Assert(stats.PoolTimeouts, Equals, 1)
+	c.Assert(stats.TimesSocketAcquired, Equals, 1)
+	c.Assert(stats.TimesWaitedForPool, Equals, 1)
+	c.Assert(stats.TotalPoolWaitTime > 900*time.Millisecond, Equals, true)
+	c.Assert(stats.TotalPoolWaitTime < 1100*time.Millisecond, Equals, true)
 }
 
 func (s *S) TestSetModeEventualIterBug(c *C) {
