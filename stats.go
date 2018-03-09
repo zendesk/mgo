@@ -32,7 +32,13 @@ import (
 )
 
 var stats *Stats
+var statsEvents *StatsEvents
 var statsMutex sync.Mutex
+
+// chanBufferSize defines the size of the buffers in the statsEvents channels
+// This number should be reasonably high so we don't drop events, because it
+// is critical that sends to the event channels are nonblocking.
+const chanBufferSize = 30
 
 // SetStats enable database state monitoring
 func SetStats(enabled bool) {
@@ -41,8 +47,15 @@ func SetStats(enabled bool) {
 		if stats == nil {
 			stats = &Stats{}
 		}
+		if statsEvents == nil {
+			statsEvents = newStatsEvents()
+		}
 	} else {
 		stats = nil
+		if statsEvents != nil {
+			closeStatsEvents(statsEvents)
+		}
+		statsEvents = nil
 	}
 	statsMutex.Unlock()
 }
@@ -53,6 +66,11 @@ func GetStats() (snapshot Stats) {
 	snapshot = *stats
 	statsMutex.Unlock()
 	return
+}
+
+// GetStatsEvents returns the struct containing event channels
+func GetStatsEvents() *StatsEvents {
+	return statsEvents
 }
 
 // ResetStats reset Stats to the previous database state
@@ -66,6 +84,9 @@ func ResetStats() {
 	stats.SocketsInUse = old.SocketsInUse
 	stats.SocketsAlive = old.SocketsAlive
 	stats.SocketRefs = old.SocketRefs
+
+	closeStatsEvents(statsEvents)
+	statsEvents = newStatsEvents()
 	statsMutex.Unlock()
 	return
 }
@@ -91,6 +112,31 @@ type Stats struct {
 	TimesWaitedForPool  int
 	TotalPoolWaitTime   time.Duration
 	PoolTimeouts        int
+}
+
+// SocketAcquireMetric represents a kind of metric we put through StatsEvents channels
+type SocketAcquireMetric struct {
+	WaitTime time.Duration
+}
+
+// StatsEvents holds channels which push information to a listening consumer in the application
+// every time certain events occur. This lets consumers take this information and perform their
+// own histogram binning, sampling, etc.
+type StatsEvents struct {
+	OnSocketAcquired chan SocketAcquireMetric
+	OnPoolTimeout    chan SocketAcquireMetric
+}
+
+func newStatsEvents() *StatsEvents {
+	statsEvents = &StatsEvents{}
+	statsEvents.OnSocketAcquired = make(chan SocketAcquireMetric, chanBufferSize)
+	statsEvents.OnPoolTimeout = make(chan SocketAcquireMetric, chanBufferSize)
+	return statsEvents
+}
+
+func closeStatsEvents(s *StatsEvents) {
+	close(s.OnSocketAcquired)
+	close(s.OnPoolTimeout)
 }
 
 func (stats *Stats) cluster(delta int) {
@@ -170,6 +216,16 @@ func (stats *Stats) noticeSocketAcquisition(waitTime time.Duration) {
 			stats.TimesWaitedForPool++
 		}
 		statsMutex.Unlock()
+
+		eventStruct := SocketAcquireMetric{
+			WaitTime: waitTime,
+		}
+		// It's important that the send is non-blocking, since we hold the stats mutex.
+		// If we block, we'll hold up a whole bunch of different mgo operations.
+		select {
+		case statsEvents.OnSocketAcquired <- eventStruct:
+		default:
+		}
 	}
 }
 
@@ -180,5 +236,13 @@ func (stats *Stats) noticePoolTimeout(waitTime time.Duration) {
 		stats.PoolTimeouts++
 		stats.TotalPoolWaitTime += waitTime
 		statsMutex.Unlock()
+
+		eventStruct := SocketAcquireMetric{
+			WaitTime: waitTime,
+		}
+		select {
+		case statsEvents.OnPoolTimeout <- eventStruct:
+		default:
+		}
 	}
 }
