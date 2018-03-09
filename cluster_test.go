@@ -1609,6 +1609,19 @@ func (s *S) TestPoolLimitSimple(c *C) {
 		c.Assert(stats.TimesWaitedForPool, Equals, 1)
 		c.Assert(stats.PoolTimeouts, Equals, 0)
 		c.Assert(stats.TotalPoolWaitTime > 300*time.Millisecond, Equals, true)
+		statsEvents := mgo.GetStatsEvents()
+		// Should be two acquisition events; one from the first .Ping(), and one
+		// from the goroutine
+		getEvent := func() *mgo.SocketAcquireMetric {
+			select {
+			case ev := <-statsEvents.OnSocketAcquired:
+				return &ev
+			case <-time.After(100 * time.Millisecond):
+				return nil
+			}
+		}
+		c.Assert(getEvent(), NotNil)
+		c.Assert(getEvent().WaitTime > 300*time.Millisecond, Equals, true)
 	}
 }
 
@@ -1687,6 +1700,13 @@ func (s *S) TestPoolLimitTimeout(c *C) {
 	c.Assert(stats.TimesWaitedForPool, Equals, 1)
 	c.Assert(stats.TotalPoolWaitTime > 900*time.Millisecond, Equals, true)
 	c.Assert(stats.TotalPoolWaitTime < 1100*time.Millisecond, Equals, true)
+	statsEvents := mgo.GetStatsEvents()
+	select {
+	case ev := <-statsEvents.OnPoolTimeout:
+		c.Assert(ev.WaitTime, Equals, stats.TotalPoolWaitTime)
+	case <-time.After(100 * time.Millisecond):
+		c.Fatalf("Did not retrieve OnPoolTimeout statsEvent")
+	}
 }
 
 func (s *S) TestSetModeEventualIterBug(c *C) {
