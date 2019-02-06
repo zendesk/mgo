@@ -507,7 +507,6 @@ func (server *mongoServer) poolShrinker() {
 				}
 			}
 			server.liveSockets = remainSockets
-			stats.conn(-1*end, server.info.Master)
 		}
 		server.Unlock()
 
