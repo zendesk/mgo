@@ -105,6 +105,8 @@ type Stats struct {
 	SentOps             int
 	ReceivedOps         int
 	ReceivedDocs        int
+	ShrunkConns         int
+	FailedConns         int
 	SocketsAlive        int
 	SocketsInUse        int
 	SocketRefs          int
@@ -203,6 +205,22 @@ func (stats *Stats) socketRefs(delta int) {
 	if stats != nil {
 		statsMutex.Lock()
 		stats.SocketRefs += delta
+		statsMutex.Unlock()
+	}
+}
+
+func (stats *Stats) shrunkConn(delta int) {
+	if stats != nil {
+		statsMutex.Lock()
+		stats.ShrunkConns += delta
+		statsMutex.Unlock()
+	}
+}
+
+func (stats *Stats) failedConn(delta int) {
+	if stats != nil {
+		statsMutex.Lock()
+		stats.FailedConns += delta
 		statsMutex.Unlock()
 	}
 }
