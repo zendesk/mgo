@@ -381,6 +381,9 @@ func (socket *mongoSocket) kill(err error, abend bool) {
 	socket.dead = err
 	socket.conn.Close()
 	stats.socketsAlive(-1)
+	if abend {
+		stats.failedConn(1)
+	}
 	replyFuncs := socket.replyFuncs
 	socket.replyFuncs = make(map[uint32]replyFunc)
 	server := socket.server
