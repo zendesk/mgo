@@ -4180,7 +4180,7 @@ type dbNames struct {
 // DatabaseNames returns the names of non-empty databases present in the cluster.
 func (s *Session) DatabaseNames() (names []string, err error) {
 	var result dbNames
-	err = s.Run("listDatabases", &result)
+	err = s.Run(bson.D{{Name: "listDatabases", Value: 1}, {Name: "nameOnly", Value: true}}, &result)
 	if err != nil {
 		return nil, err
 	}
